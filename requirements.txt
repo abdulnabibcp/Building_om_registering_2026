@@ -1,5 +1,6 @@
 streamlit
 pandas
-reportlab
+pdfkit
 arabic_reshaper
 python-bidi
+
