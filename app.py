@@ -2,7 +2,7 @@ import io
 import sqlite3
 import pandas as pd
 import streamlit as st
-from weasyprint import HTML
+import pdfkit
 
 # --- 1. إعداد قاعدة البيانات ---
 DB_NAME = "omni_realestate_v5.db"
@@ -45,7 +45,7 @@ def init_db():
 
 init_db()
 
-# --- 2. دالة توليد تقرير PDF احترافي يدعم اللغة العربية عبر HTML & WeasyPrint ---
+# --- 2. دالة توليد تقرير PDF عربي عبر HTML & pdfkit ---
 def generate_pdf_html(prop):
     html_content = f"""
     <!DOCTYPE html>
@@ -53,83 +53,53 @@ def generate_pdf_html(prop):
     <head>
     <meta charset="utf-8">
     <style>
-        @page {{
-            size: A4;
-            margin: 15mm;
-            background-color: #f8fafc;
-        }}
         body {{
-            font-family: 'DejaVu Sans', 'Arial', sans-serif;
+            font-family: 'Arial', sans-serif;
             color: #1e293b;
-            margin: 0;
-            padding: 0;
             direction: rtl;
+            padding: 20px;
         }}
         .header {{
             background: #0f172a;
             color: #ffffff;
-            padding: 20px 25px;
-            border-radius: 8px;
+            padding: 15px;
+            border-radius: 6px;
             margin-bottom: 20px;
-        }}
-        .header h1 {{
-            margin: 0;
-            font-size: 18pt;
-            font-weight: bold;
-        }}
-        .header p {{
-            margin: 5px 0 0 0;
-            font-size: 10pt;
-            color: #94a3b8;
+            text-align: center;
         }}
         .section-title {{
-            font-size: 13pt;
+            font-size: 14pt;
             font-weight: bold;
             color: #0f172a;
             border-right: 4px solid #2563eb;
-            padding-right: 10px;
+            padding-right: 8px;
             margin: 15px 0 10px 0;
         }}
         table {{
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 15px;
-            background: #ffffff;
-            border-radius: 6px;
-            overflow: hidden;
         }}
         th, td {{
-            padding: 9px 12px;
+            padding: 8px 10px;
             font-size: 10pt;
             text-align: right;
-            border-bottom: 1px solid #e2e8f0;
+            border: 1px solid #cbd5e1;
         }}
         th {{
             background-color: #1e293b;
             color: #ffffff;
-            font-weight: bold;
-            width: 45%;
+            width: 40%;
         }}
-        td {{
-            color: #334155;
-        }}
-        .highlight-row {{
+        .highlight {{
             background-color: #eff6ff;
             font-weight: bold;
-        }}
-        .footer {{
-            margin-top: 20px;
-            text-align: center;
-            font-size: 8pt;
-            color: #64748b;
-            border-top: 1px solid #cbd5e1;
-            padding-top: 10px;
         }}
     </style>
     </head>
     <body>
         <div class="header">
-            <h1>🏢 تقرير تفصيلي للعقار والجدوى الاستثمارية</h1>
+            <h2>🏢 تقرير تفصيلي للعقار والجدوى الاستثمارية</h2>
             <p>سلطنة عمان - نظام إدارة العقارات والتحليل المالي</p>
         </div>
 
@@ -152,17 +122,17 @@ def generate_pdf_html(prop):
             <tr><th>سعر العقار الأساسي</th><td>{prop[5]:,.2f} ر.ع.</td></tr>
             <tr><th>رسوم وزارة الإسكان (3%)</th><td>{prop[6]:,.2f} ر.ع.</td></tr>
             <tr><th>رسوم الوساطة العقارية (1.5%)</th><td>{prop[7]:,.2f} ر.ع.</td></tr>
-            <tr class="highlight-row"><th>إجمالي التكلفة الاستثمارية الشاملة</th><td>{prop[8]:,.2f} ر.ع.</td></tr>
+            <tr class="highlight"><th>إجمالي التكلفة الاستثمارية الشاملة</th><td>{prop[8]:,.2f} ر.ع.</td></tr>
             <tr><th>الدخل الشهري الإجمالي</th><td>{prop[9]:,.2f} ر.ع.</td></tr>
             <tr><th>الدخل السنوي الإجمالي</th><td>{prop[10]:,.2f} ر.ع.</td></tr>
             <tr><th>المصاريف التشغيلية الشهرية</th><td>{prop[11]:,.2f} ر.ع.</td></tr>
-            <tr class="highlight-row"><th>صافي الدخل السنوي</th><td>{prop[13]:,.2f} ر.ع.</td></tr>
+            <tr class="highlight"><th>صافي الدخل السنوي</th><td>{prop[13]:,.2f} ر.ع.</td></tr>
         </table>
 
         <div class="section-title">📊 مؤشرات الجدوى والعائد الاستثماري</div>
         <table>
             <tr><th>العائد الإجمالي (Gross ROI)</th><td>%{prop[14]:.2f}</td></tr>
-            <tr class="highlight-row"><th>العائد الصافي على الاستثمار الشامل (Net ROI)</th><td>%{prop[15]:.2f}</td></tr>
+            <tr class="highlight"><th>العائد الصافي على الاستثمار الشامل (Net ROI)</th><td>%{prop[15]:.2f}</td></tr>
             <tr><th>فترة استرداد رأس المال الصافية</th><td>{prop[16]:.1f} سنة</td></tr>
         </table>
 
@@ -173,14 +143,15 @@ def generate_pdf_html(prop):
             <tr><th>رقم التواصل</th><td>{prop[24] if prop[24] else 'غير محدد'}</td></tr>
             <tr><th>ملاحظات إضافية</th><td>{prop[25] if prop[25] else 'لا توجد'}</td></tr>
         </table>
-
-        <div class="footer">
-            تم استخراج هذا التقرير تلقائياً بواسطة نظام إدارة العقارات - جميع الحقوق محفوظة.
-        </div>
     </body>
     </html>
     """
-    pdf_bytes = HTML(string=html_content).write_pdf()
+    options = {
+        'encoding': "UTF-8",
+        'page-size': 'A4',
+        'enable-local-file-access': None
+    }
+    pdf_bytes = pdfkit.from_string(html_content, False, options=options)
     return pdf_bytes
 
 # --- 3. واجهة Streamlit ---
@@ -221,13 +192,16 @@ with tabs[0]:
             conn.close()
 
             if data:
-                pdf_file = generate_pdf_html(data)
-                st.download_button(
-                    label="📥 تحميل تقرير PDF الشامل (داعم للغة العربية)",
-                    data=pdf_file,
-                    file_name=f"property_report_{prop_id}.pdf",
-                    mime="application/pdf"
-                )
+                try:
+                    pdf_file = generate_pdf_html(data)
+                    st.download_button(
+                        label="📥 تحميل تقرير PDF الشامل",
+                        data=pdf_file,
+                        file_name=f"property_report_{prop_id}.pdf",
+                        mime="application/pdf"
+                    )
+                except Exception as e:
+                    st.error("يرجى التأكد من إضافة ملف packages.txt وبداخله wkhtmltopdf لتفعيل التصدير لـ PDF.")
             else:
                 st.error("لم يتم العثور على عقار بهذا المعرف.")
     else:
@@ -258,7 +232,6 @@ with tabs[1]:
         contact_phone = st.text_input("رقم التواصل / هاتف الواتساب")
         status = st.selectbox("حالة الإعلان", ["متاح", "تم البيع", "منتهي الإعلان"])
         
-        # تخصيص حقول الشقق والمحلات والمساحات
         if property_type == "بناية استثمارية (سكنية فقط)":
             apartments_count = st.number_input("عدد الشقق السكنية", min_value=1, step=1, value=1)
             shops_count = 0
@@ -281,9 +254,8 @@ with tabs[1]:
 
     notes = st.text_area("ملاحظات إضافية")
 
-    # --- الحسابات التلقائية ---
-    housing_fee = price * 0.03       # رسوم وزارة الإسكان 3%
-    brokerage_fee = price * 0.015    # عمولة مكتب الوساطة 1.5%
+    housing_fee = price * 0.03       
+    brokerage_fee = price * 0.015    
     total_investment = price + housing_fee + brokerage_fee
 
     annual_rent = monthly_rent * 12
@@ -329,20 +301,6 @@ with tabs[1]:
             conn.close()
 
             st.success(f"✅ تم حفظ العقار بنجاح تحت المعرف رقم (#{new_id})!")
-
-            conn = sqlite3.connect(DB_NAME)
-            c = conn.cursor()
-            c.execute("SELECT * FROM properties WHERE id = ?", (new_id,))
-            new_prop_data = c.fetchone()
-            conn.close()
-
-            pdf_out = generate_pdf_html(new_prop_data)
-            st.download_button(
-                label="📥 تحميل تقرير PDF التفصيلي فوراً",
-                data=pdf_out,
-                file_name=f"property_report_{new_id}.pdf",
-                mime="application/pdf"
-            )
 
 # --- التبويب الثالث: التعديل والحذف وتغيير الحالة ---
 with tabs[2]:
