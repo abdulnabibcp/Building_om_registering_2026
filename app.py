@@ -21,7 +21,14 @@ def init_db():
             district TEXT NOT NULL,
             property_type TEXT NOT NULL,
             price REAL NOT NULL,
+            monthly_rent REAL NOT NULL,
             annual_rent REAL NOT NULL,
+            monthly_op_cost REAL DEFAULT 0,
+            annual_op_cost REAL DEFAULT 0,
+            net_annual_rent REAL NOT NULL,
+            gross_roi REAL NOT NULL,
+            net_roi REAL NOT NULL,
+            payback_years REAL NOT NULL,
             status TEXT NOT NULL,
             units_count INTEGER,
             built_area REAL,
@@ -49,42 +56,40 @@ def generate_pdf(property_data):
     width, height = A4
 
     p.setFont("Helvetica-Bold", 16)
-    p.drawRightString(width - 50, height - 50, format_arabic("تقرير تفصيلي للعقار الاستثماري"))
+    p.drawRightString(width - 50, height - 50, format_arabic("تقرير تفصيلي للعقار - نظام إدارة العقارات"))
     p.setLineWidth(1)
     p.line(50, height - 60, width - 50, height - 60)
 
     p.setFont("Helvetica", 11)
     y = height - 90
-    
-    # حساب الجدوى
-    price = property_data[5]
-    annual_rent = property_data[6]
-    roi = (annual_rent / price * 100) if price > 0 else 0
-    payback = (price / annual_rent) if annual_rent > 0 else 0
 
     fields = [
         ("معرف العقار (ID):", str(property_data[0])),
-        ("عنوان الإعلان:", str(property_data[1])),
+        ("عنوان الإعلان / البناية:", str(property_data[1])),
         ("المدينة / المحافظة:", str(property_data[2])),
         ("المنطقة / الحي:", str(property_data[3])),
         ("نوع العقار:", str(property_data[4])),
-        ("صفة المعلن:", str(property_data[10])),
-        ("اسم المعلن / المكتب:", str(property_data[11])),
-        ("رقم التواصل:", str(property_data[12])),
+        ("صفة المعلن:", str(property_data[17])),
+        ("اسم المعلن / المكتب:", str(property_data[18])),
+        ("رقم التواصل:", str(property_data[19])),
         ("السعر المطلوب (ر.ع.):", f"{property_data[5]:,.2f}"),
-        ("الدخل السنوي المتوقع (ر.ع.):", f"{property_data[6]:,.2f}"),
-        ("العائد الاستثماري السنوي (ROI):", f"%{roi:.2f}"),
-        ("فترة استرداد رأس المال:", f"{payback:.1f} سنة"),
-        ("حالة الإعلان:", str(property_data[7])),
-        ("عدد الوحدات / المحلات:", str(property_data[8])),
-        ("مساحة البناء (م²):", str(property_data[9])),
-        ("ملاحظات إضافية:", str(property_data[13]))
+        ("الدخل الشهري (ر.ع.):", f"{property_data[6]:,.2f}"),
+        ("الدخل السنوي الإجمالي (ر.ع.):", f"{property_data[7]:,.2f}"),
+        ("المصاريف التشغيلية الشهرية (ر.ع.):", f"{property_data[8]:,.2f}"),
+        ("صافي الدخل السنوي (ر.ع.):", f"{property_data[10]:,.2f}"),
+        ("العائد الإجمالي (Gross ROI):", f"%{property_data[11]:.2f}"),
+        ("العائد الصافي (Net ROI):", f"%{property_data[12]:.2f}"),
+        ("فترة استرداد رأس المال:", f"{property_data[13]:.1f} سنة"),
+        ("حالة الإعلان:", str(property_data[14])),
+        ("عدد الوحدات / المحلات:", str(property_data[15])),
+        ("مساحة البناء (م²):", str(property_data[16])),
+        ("ملاحظات إضافية:", str(property_data[20]))
     ]
 
     for label, val in fields:
         line_text = f"{format_arabic(val)} : {format_arabic(label)}"
         p.drawRightString(width - 50, y, line_text)
-        y -= 22
+        y -= 21
 
     p.showPage()
     p.save()
@@ -92,10 +97,10 @@ def generate_pdf(property_data):
     return buffer
 
 # --- 3. واجهة Streamlit ---
-st.set_page_config(page_title="إدارة العقارات - السوق العماني", layout="wide")
-st.title("🏢 نظام إدارة وتعديل العقارات الاستثمارية (عُمان)")
+st.set_page_config(page_title="نظام إدارة العقارات", layout="wide")
+st.title("🏢 نظام إدارة العقارات")
 
-tabs = st.tabs(["📋 عرض واستعلام", "➕ إضافة إعلان جديد", "✏️ تعديل / حذف / تغيير حالة", "📊 حاسبة الجدوى"])
+tabs = st.tabs(["📋 عرض واستعلام", "➕ إضافة إعلان جديد والجدوى", "✏️ تعديل / حذف / تغيير حالة", "📊 حاسبة الجدوى السريعة"])
 
 # --- التبويب الأول: العرض واستخراج PDF ---
 with tabs[0]:
@@ -105,7 +110,6 @@ with tabs[0]:
     conn.close()
 
     if not df.empty:
-        # فلاتر البحث
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             status_filter = st.selectbox("تصفية حسب الحالة:", ["الكل"] + list(df['status'].unique()))
@@ -142,46 +146,82 @@ with tabs[0]:
     else:
         st.info("لا توجد عقارات مسجلة حالياً.")
 
-# --- التبويب الثاني: إضافة إعلان جديد ---
+# --- التبويب الثاني: إضافة عقار وتوليد الجدوى التلقائي ---
 with tabs[1]:
-    st.header("إضافة عقار جديد")
-    with st.form("add_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            title = st.text_input("عنوان الإعلان / اسم البناية")
-            city = st.selectbox("المحافظة/المدينة", ["مسقط", "ظفار", "صحار", "نزوى", "بركاء", "أخرى"])
-            district = st.text_input("المنطقة / الحي")
-            property_type = st.selectbox("نوع العقار", ["بناية تجارية", "بناية سكنية تجارية", "أرض استثمارية", "مجمع تجاري"])
-            price = st.number_input("السعر المطلوب (ر.ع.)", min_value=0.0, step=1000.0)
-            annual_rent = st.number_input("الدخل السنوي المتوقع (ر.ع.)", min_value=0.0, step=100.0)
+    st.header("إضافة عقار جديد مع حساب الجدوى التلقائي")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        title = st.text_input("عنوان الإعلان / اسم البناية")
+        city = st.selectbox("المحافظة/المدينة", ["مسقط", "ظفار", "صحار", "نزوى", "بركاء", "أخرى"])
+        district = st.text_input("المنطقة / الحي")
+        property_type = st.selectbox("نوع العقار", ["بناية تجارية", "بناية سكنية تجارية", "أرض استثمارية", "مجمع تجاري"])
+        price = st.number_input("السعر المطلوب للشراء (ر.ع.)", min_value=1.0, step=1000.0, value=100000.0)
+        monthly_rent = st.number_input("الدخل الشهري (ر.ع.)", min_value=0.0, step=100.0, value=1000.0)
+        monthly_op_cost = st.number_input("المصاريف التشغيلية الشهرية (صيانة/إدارة) (ر.ع.)", min_value=0.0, step=50.0, value=100.0)
 
-        with col2:
-            advertiser_type = st.radio("صفة المعلن", ["المالك مباشرة", "مكتب عقاري / وسيط"], horizontal=True)
-            advertiser_name = st.text_input("اسم المعلن / اسم المكتب العقاري")
-            contact_phone = st.text_input("رقم التواصل / هاتف الواتساب")
-            status = st.selectbox("حالة الإعلان", ["متاح", "تم البيع", "منتهي الإعلان"])
-            units_count = st.number_input("عدد المحلات / الشقق", min_value=0, step=1)
-            built_area = st.number_input("مساحة البناء (م²)", min_value=0.0, step=10.0)
-        
-        notes = st.text_area("ملاحظات إضافية")
+    with col2:
+        advertiser_type = st.radio("صفة المعلن", ["المالك مباشرة", "مكتب عقاري / وسيط"], horizontal=True)
+        advertiser_name = st.text_input("اسم المعلن / اسم المكتب العقاري")
+        contact_phone = st.text_input("رقم التواصل / هاتف الواتساب")
+        status = st.selectbox("حالة الإعلان", ["متاح", "تم البيع", "منتهي الإعلان"])
+        units_count = st.number_input("عدد المحلات / الشقق", min_value=0, step=1)
+        built_area = st.number_input("مساحة البناء (م²)", min_value=0.0, step=10.0)
 
-        submitted = st.form_submit_button("حفظ العقار")
-        if submitted and title:
+    notes = st.text_area("ملاحظات إضافية")
+
+    # الحساب الأوتوماتيكي للجدوى
+    annual_rent = monthly_rent * 12
+    annual_op_cost = monthly_op_cost * 12
+    net_annual_rent = annual_rent - annual_op_cost
+    gross_roi = (annual_rent / price * 100) if price > 0 else 0
+    net_roi = (net_annual_rent / price * 100) if price > 0 else 0
+    payback_years = (price / net_annual_rent) if net_annual_rent > 0 else 0
+
+    st.subheader("📊 ملخص الجدوى الاستثمارية المحسوب تلقائياً:")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("الدخل السنوي الإجمالي", f"{annual_rent:,.2f} ر.ع.")
+    m2.metric("العائد الإجمالي (Gross ROI)", f"{gross_roi:.2f}%")
+    m3.metric("العائد الصافي (Net ROI)", f"{net_roi:.2f}%")
+    m4.metric("فترة استرداد رأس المال", f"{payback_years:.1f} سنة")
+
+    if st.button("💾 حفظ العقار في قاعدة البيانات", type="primary"):
+        if title:
             conn = sqlite3.connect(DB_NAME)
             c = conn.cursor()
             c.execute('''
                 INSERT INTO properties (
-                    title, city, district, property_type, price, annual_rent, status, 
-                    units_count, built_area, advertiser_type, advertiser_name, contact_phone, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    title, city, district, property_type, price, monthly_rent, annual_rent, 
+                    monthly_op_cost, annual_op_cost, net_annual_rent, gross_roi, net_roi, payback_years,
+                    status, units_count, built_area, advertiser_type, advertiser_name, contact_phone, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                title, city, district, property_type, price, annual_rent, status, 
-                units_count, built_area, advertiser_type, advertiser_name, contact_phone, notes
+                title, city, district, property_type, price, monthly_rent, annual_rent,
+                monthly_op_cost, annual_op_cost, net_annual_rent, gross_roi, net_roi, payback_years,
+                status, units_count, built_area, advertiser_type, advertiser_name, contact_phone, notes
             ))
+            new_id = c.lastrowid
             conn.commit()
             conn.close()
-            st.success("تم حفظ العقار بنجاح!")
-            st.rerun()
+
+            # الرسالة والتنبيه للحصول على التقرير
+            st.success(f"✅ تم حفظ العقار بنجاح تحت المعرف رقم (#{new_id})!")
+            st.info("💡 هل ترغب في الحصول على تقرير مفصل (PDF) للعقار المسجل الآن؟")
+            
+            # جلب البيانات كاملة لاستخراج PDF مباشرة
+            conn = sqlite3.connect(DB_NAME)
+            c = conn.cursor()
+            c.execute("SELECT * FROM properties WHERE id = ?", (new_id,))
+            new_prop_data = c.fetchone()
+            conn.close()
+
+            pdf_out = generate_pdf(new_prop_data)
+            st.download_button(
+                label="📥 تحميل تقرير PDF التفصيلي للعقار المسجل فوراً",
+                data=pdf_out,
+                file_name=f"property_report_{new_id}.pdf",
+                mime="application/pdf"
+            )
 
 # --- التبويب الثالث: التعديل والحذف وتغيير الحالة ---
 with tabs[2]:
@@ -199,25 +239,32 @@ with tabs[2]:
         
         col1, col2 = st.columns(2)
         with col1:
-            new_status = st.selectbox("تغيير الحالة السريع:", ["متاح", "تم البيع", "منتهي الإعلان"], index=["متاح", "تم البيع", "منتهي الإعلان"].index(prop[7]))
+            new_status = st.selectbox("تغيير الحالة السريع:", ["متاح", "تم البيع", "منتهي الإعلان"], index=["متاح", "تم البيع", "منتهي الإعلان"].index(prop[14]))
             new_price = st.number_input("تعديل السعر (ر.ع.):", value=float(prop[5]))
-            new_rent = st.number_input("تعديل الدخل السنوي (ر.ع.):", value=float(prop[6]))
+            new_m_rent = st.number_input("تعديل الدخل الشهري (ر.ع.):", value=float(prop[6]))
 
         with col2:
-            new_adv_type = st.radio("تعديل صفة المعلن:", ["المالك مباشرة", "مكتب عقاري / وسيط"], index=0 if prop[10] == "المالك مباشرة" else 1, horizontal=True)
-            new_adv_name = st.text_input("تعديل اسم المعلن / المكتب:", value=prop[11] if prop[11] else "")
-            new_phone = st.text_input("تعديل رقم التواصل:", value=prop[12] if prop[12] else "")
+            new_adv_type = st.radio("تعديل صفة المعلن:", ["المالك مباشرة", "مكتب عقاري / وسيط"], index=0 if prop[17] == "المالك مباشرة" else 1, horizontal=True)
+            new_adv_name = st.text_input("تعديل اسم المعلن / المكتب:", value=prop[18] if prop[18] else "")
+            new_phone = st.text_input("تعديل رقم التواصل:", value=prop[19] if prop[19] else "")
 
         col_b1, col_b2 = st.columns(2)
         with col_b1:
             if st.button("💾 تحديث البيانات"):
+                ann_rent = new_m_rent * 12
+                n_op = float(prop[8]) * 12
+                net_ann = ann_rent - n_op
+                g_roi = (ann_rent / new_price * 100) if new_price > 0 else 0
+                n_roi = (net_ann / new_price * 100) if new_price > 0 else 0
+                pb_years = (new_price / net_ann) if net_ann > 0 else 0
+
                 conn = sqlite3.connect(DB_NAME)
                 c = conn.cursor()
                 c.execute('''
                     UPDATE properties 
-                    SET status=?, price=?, annual_rent=?, advertiser_type=?, advertiser_name=?, contact_phone=? 
+                    SET status=?, price=?, monthly_rent=?, annual_rent=?, net_annual_rent=?, gross_roi=?, net_roi=?, payback_years=?, advertiser_type=?, advertiser_name=?, contact_phone=? 
                     WHERE id=?
-                ''', (new_status, new_price, new_rent, new_adv_type, new_adv_name, new_phone, prop_id_edit))
+                ''', (new_status, new_price, new_m_rent, ann_rent, net_ann, g_roi, n_roi, pb_years, new_adv_type, new_adv_name, new_phone, prop_id_edit))
                 conn.commit()
                 conn.close()
                 st.success("تم تحديث البيانات بنجاح!")
@@ -235,22 +282,25 @@ with tabs[2]:
     else:
         st.info("أدخل رقم ID صحيح لفتح خيارات التعديل.")
 
-# --- التبويب الرابع: حاسبة الجدوى الاستثمارية ---
+# --- التبويب الرابع: حاسبة الجدوى السريعة ---
 with tabs[3]:
-    st.header("📈 حاسبة الجدوى والعائد الاستثماري للبنايات")
+    st.header("📈 حاسبة الجدوى والعائد الاستثماري")
     
     col_calc1, col_calc2 = st.columns(2)
     with col_calc1:
-        calc_price = st.number_input("سعر الشراء الإجمالي (ر.ع.)", min_value=1.0, value=150000.0)
-        calc_rent = st.number_input("إجمالي الدخل السنوي (ر.ع.)", min_value=0.0, value=13500.0)
-        calc_op_cost = st.number_input("المصاريف التشغيلية السنوية (صيانة، إدارة) (ر.ع.)", min_value=0.0, value=1000.0)
+        calc_price = st.number_input("سعر الشراء الإجمالي (ر.ع.)", min_value=1.0, value=150000.0, key="c_price")
+        calc_m_rent = st.number_input("الدخل الشهري (ر.ع.)", min_value=0.0, value=1200.0, key="c_m_rent")
+        calc_m_op_cost = st.number_input("المصاريف التشغيلية الشهرية (ر.ع.)", min_value=0.0, value=100.0, key="c_m_op")
 
     with col_calc2:
-        net_rent = calc_rent - calc_op_cost
-        gross_roi = (calc_rent / calc_price) * 100
-        net_roi = (net_rent / calc_price) * 100
-        payback_period = calc_price / net_rent if net_rent > 0 else 0
+        c_ann_rent = calc_m_rent * 12
+        c_ann_op = calc_m_op_cost * 12
+        c_net_rent = c_ann_rent - c_ann_op
+        c_gross_roi = (c_ann_rent / calc_price) * 100
+        c_net_roi = (c_net_rent / calc_price) * 100
+        c_payback = calc_price / c_net_rent if c_net_rent > 0 else 0
 
-        st.metric("العائد الإجمالي (Gross ROI)", f"{gross_roi:.2f}%")
-        st.metric("العائد الصافي (Net ROI)", f"{net_roi:.2f}%")
-        st.metric("فترة استرداد رأس المال الصافية", f"{payback_period:.1f} سنة")
+        st.metric("إجمالي الدخل السنوي", f"{c_ann_rent:,.2f} ر.ع.")
+        st.metric("العائد الإجمالي (Gross ROI)", f"{c_gross_roi:.2f}%")
+        st.metric("العائد الصافي (Net ROI)", f"{c_net_roi:.2f}%")
+        st.metric("فترة استرداد رأس المال الصافية", f"{c_payback:.1f} سنة")
