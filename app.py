@@ -2,13 +2,10 @@ import io
 import sqlite3
 import pandas as pd
 import streamlit as st
-import arabic_reshaper
-from bidi.algorithm import get_display
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
+from weasyprint import HTML
 
 # --- 1. إعداد قاعدة البيانات ---
-DB_NAME = "omni_realestate_v4.db"
+DB_NAME = "omni_realestate_v5.db"
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -35,7 +32,8 @@ def init_db():
             status TEXT NOT NULL,
             apartments_count INTEGER DEFAULT 0,
             shops_count INTEGER DEFAULT 0,
-            built_area REAL,
+            land_area REAL DEFAULT 0,
+            built_area REAL DEFAULT 0,
             advertiser_type TEXT NOT NULL,
             advertiser_name TEXT,
             contact_phone TEXT,
@@ -47,62 +45,143 @@ def init_db():
 
 init_db()
 
-# --- 2. دالة معالجة النصوص العربية وتوليد PDF ---
-def format_arabic(text):
-    if not text:
-        return ""
-    reshaped_text = arabic_reshaper.reshape(str(text))
-    return get_display(reshaped_text)
+# --- 2. دالة توليد تقرير PDF احترافي يدعم اللغة العربية عبر HTML & WeasyPrint ---
+def generate_pdf_html(prop):
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+    <meta charset="utf-8">
+    <style>
+        @page {{
+            size: A4;
+            margin: 15mm;
+            background-color: #f8fafc;
+        }}
+        body {{
+            font-family: 'DejaVu Sans', 'Arial', sans-serif;
+            color: #1e293b;
+            margin: 0;
+            padding: 0;
+            direction: rtl;
+        }}
+        .header {{
+            background: #0f172a;
+            color: #ffffff;
+            padding: 20px 25px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }}
+        .header h1 {{
+            margin: 0;
+            font-size: 18pt;
+            font-weight: bold;
+        }}
+        .header p {{
+            margin: 5px 0 0 0;
+            font-size: 10pt;
+            color: #94a3b8;
+        }}
+        .section-title {{
+            font-size: 13pt;
+            font-weight: bold;
+            color: #0f172a;
+            border-right: 4px solid #2563eb;
+            padding-right: 10px;
+            margin: 15px 0 10px 0;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+            background: #ffffff;
+            border-radius: 6px;
+            overflow: hidden;
+        }}
+        th, td {{
+            padding: 9px 12px;
+            font-size: 10pt;
+            text-align: right;
+            border-bottom: 1px solid #e2e8f0;
+        }}
+        th {{
+            background-color: #1e293b;
+            color: #ffffff;
+            font-weight: bold;
+            width: 45%;
+        }}
+        td {{
+            color: #334155;
+        }}
+        .highlight-row {{
+            background-color: #eff6ff;
+            font-weight: bold;
+        }}
+        .footer {{
+            margin-top: 20px;
+            text-align: center;
+            font-size: 8pt;
+            color: #64748b;
+            border-top: 1px solid #cbd5e1;
+            padding-top: 10px;
+        }}
+    </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🏢 تقرير تفصيلي للعقار والجدوى الاستثمارية</h1>
+            <p>سلطنة عمان - نظام إدارة العقارات والتحليل المالي</p>
+        </div>
 
-def generate_pdf(property_data):
-    buffer = io.BytesIO()
-    p = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
+        <div class="section-title">📌 البيانات الأساسية للمشروع</div>
+        <table>
+            <tr><th>معرف العقار (ID)</th><td>#{prop[0]}</td></tr>
+            <tr><th>عنوان الإعلان / البناية</th><td>{prop[1]}</td></tr>
+            <tr><th>المحافظة / المدينة</th><td>{prop[2]}</td></tr>
+            <tr><th>المنطقة / الحي</th><td>{prop[3]}</td></tr>
+            <tr><th>نوع العقار</th><td>{prop[4]}</td></tr>
+            <tr><th>مساحة الأرض (م²)</th><td><strong>{prop[20]:,.2f} م²</strong></td></tr>
+            <tr><th>مساحة البناء (م²)</th><td>{prop[21]:,.2f} م²</td></tr>
+            <tr><th>عدد الشقق السكنية</th><td>{prop[18]} شقة</td></tr>
+            <tr><th>عدد المحلات التجارية</th><td>{prop[19]} محل</td></tr>
+            <tr><th>حالة الإعلان</th><td>{prop[17]}</td></tr>
+        </table>
 
-    p.setFont("Helvetica-Bold", 15)
-    p.drawRightString(width - 50, height - 40, format_arabic("تقرير تفصيلي للعقار وحساب التكاليف والجدوى - سلطنة عمان"))
-    p.setLineWidth(1)
-    p.line(50, height - 48, width - 50, height - 48)
+        <div class="section-title">💰 التحليل المالي وتفاصيل التكاليف (ر.ع.)</div>
+        <table>
+            <tr><th>سعر العقار الأساسي</th><td>{prop[5]:,.2f} ر.ع.</td></tr>
+            <tr><th>رسوم وزارة الإسكان (3%)</th><td>{prop[6]:,.2f} ر.ع.</td></tr>
+            <tr><th>رسوم الوساطة العقارية (1.5%)</th><td>{prop[7]:,.2f} ر.ع.</td></tr>
+            <tr class="highlight-row"><th>إجمالي التكلفة الاستثمارية الشاملة</th><td>{prop[8]:,.2f} ر.ع.</td></tr>
+            <tr><th>الدخل الشهري الإجمالي</th><td>{prop[9]:,.2f} ر.ع.</td></tr>
+            <tr><th>الدخل السنوي الإجمالي</th><td>{prop[10]:,.2f} ر.ع.</td></tr>
+            <tr><th>المصاريف التشغيلية الشهرية</th><td>{prop[11]:,.2f} ر.ع.</td></tr>
+            <tr class="highlight-row"><th>صافي الدخل السنوي</th><td>{prop[13]:,.2f} ر.ع.</td></tr>
+        </table>
 
-    p.setFont("Helvetica", 10)
-    y = height - 70
+        <div class="section-title">📊 مؤشرات الجدوى والعائد الاستثماري</div>
+        <table>
+            <tr><th>العائد الإجمالي (Gross ROI)</th><td>%{prop[14]:.2f}</td></tr>
+            <tr class="highlight-row"><th>العائد الصافي على الاستثمار الشامل (Net ROI)</th><td>%{prop[15]:.2f}</td></tr>
+            <tr><th>فترة استرداد رأس المال الصافية</th><td>{prop[16]:.1f} سنة</td></tr>
+        </table>
 
-    fields = [
-        ("معرف العقار (ID):", str(property_data[0])),
-        ("عنوان الإعلان / البناية:", str(property_data[1])),
-        ("المدينة / المحافظة:", str(property_data[2])),
-        ("المنطقة / الحي:", str(property_data[3])),
-        ("نوع العقار:", str(property_data[4])),
-        ("صفة المعلن:", str(property_data[21])),
-        ("اسم المعلن / المكتب:", str(property_data[22])),
-        ("رقم التواصل:", str(property_data[23])),
-        ("سعر العقار الأساسي (ر.ع.):", f"{property_data[5]:,.2f}"),
-        ("رسوم وزارة الإسكان (3%):", f"{property_data[6]:,.2f}"),
-        ("رسوم الوساطة العقارية (1.5%):", f"{property_data[7]:,.2f}"),
-        ("إجمالي تكلفة الاستثمار (ر.ع.):", f"{property_data[8]:,.2f}"),
-        ("الدخل الشهري الإجمالي (ر.ع.):", f"{property_data[9]:,.2f}"),
-        ("الدخل السنوي الإجمالي (ر.ع.):", f"{property_data[10]:,.2f}"),
-        ("المصاريف التشغيلية الشهرية (ر.ع.):", f"{property_data[11]:,.2f}"),
-        ("صافي الدخل السنوي (ر.ع.):", f"{property_data[13]:,.2f}"),
-        ("العائد الإجمالي (Gross ROI):", f"%{property_data[14]:.2f}"),
-        ("العائد الصافي على الاستثمار الإجمالي (Net ROI):", f"%{property_data[15]:.2f}"),
-        ("فترة استرداد رأس المال الصافية:", f"{property_data[16]:.1f} سنة"),
-        ("حالة الإعلان:", str(property_data[17])),
-        ("عدد الشقق السكنية:", str(property_data[18])),
-        ("عدد المحلات التجارية:", str(property_data[19])),
-        ("مساحة البناء (م²):", str(property_data[20])),
-        ("ملاحظات إضافية:", str(property_data[24]))
-    ]
+        <div class="section-title">📞 بيانات المعلن والملاحظات</div>
+        <table>
+            <tr><th>صفة المعلن</th><td>{prop[22]}</td></tr>
+            <tr><th>اسم المعلن / المكتب</th><td>{prop[23] if prop[23] else 'غير محدد'}</td></tr>
+            <tr><th>رقم التواصل</th><td>{prop[24] if prop[24] else 'غير محدد'}</td></tr>
+            <tr><th>ملاحظات إضافية</th><td>{prop[25] if prop[25] else 'لا توجد'}</td></tr>
+        </table>
 
-    for label, val in fields:
-        line_text = f"{format_arabic(val)} : {format_arabic(label)}"
-        p.drawRightString(width - 50, y, line_text)
-        y -= 19
-
-    p.showPage()
-    p.save()
-    buffer.seek(0)
-    return buffer
+        <div class="footer">
+            تم استخراج هذا التقرير تلقائياً بواسطة نظام إدارة العقارات - جميع الحقوق محفوظة.
+        </div>
+    </body>
+    </html>
+    """
+    pdf_bytes = HTML(string=html_content).write_pdf()
+    return pdf_bytes
 
 # --- 3. واجهة Streamlit ---
 st.set_page_config(page_title="نظام إدارة العقارات - سلطنة عمان", layout="wide")
@@ -142,9 +221,9 @@ with tabs[0]:
             conn.close()
 
             if data:
-                pdf_file = generate_pdf(data)
+                pdf_file = generate_pdf_html(data)
                 st.download_button(
-                    label="📥 تحميل تقرير PDF الشامل",
+                    label="📥 تحميل تقرير PDF الشامل (داعم للغة العربية)",
                     data=pdf_file,
                     file_name=f"property_report_{prop_id}.pdf",
                     mime="application/pdf"
@@ -154,7 +233,7 @@ with tabs[0]:
     else:
         st.info("لا توجد عقارات مسجلة حالياً.")
 
-# --- التبويب الثاني: إضافة عقار وتوليد الجدوى التلقائي ---
+# --- التبويب الثاني: إضافة عقار جديد ---
 with tabs[1]:
     st.header("إضافة عقار جديد وحساب التكاليف والرسوم تلقائياً")
     
@@ -171,7 +250,7 @@ with tabs[1]:
         
         price = st.number_input("سعر شراء العقار (ر.ع.)", min_value=1.0, step=1000.0, value=100000.0)
         monthly_rent = st.number_input("الدخل الشهري الإجمالي (ر.ع.)", min_value=0.0, step=100.0, value=1000.0)
-        monthly_op_cost = st.number_input("المصاريف التشغيلية الشهرية (صيانة/إدارة) (ر.ع.)", min_value=0.0, step=50.0, value=100.0)
+        monthly_op_cost = st.number_input("المصاريف التشغيلية الشهرية (ر.ع.)", min_value=0.0, step=50.0, value=100.0)
 
     with col2:
         advertiser_type = st.radio("صفة المعلن", ["المالك مباشرة", "مكتب عقاري / وسيط"], horizontal=True)
@@ -179,7 +258,7 @@ with tabs[1]:
         contact_phone = st.text_input("رقم التواصل / هاتف الواتساب")
         status = st.selectbox("حالة الإعلان", ["متاح", "تم البيع", "منتهي الإعلان"])
         
-        # تخصيص حقول الشقق والمحلات حسب نوع البناية
+        # تخصيص حقول الشقق والمحلات والمساحات
         if property_type == "بناية استثمارية (سكنية فقط)":
             apartments_count = st.number_input("عدد الشقق السكنية", min_value=1, step=1, value=1)
             shops_count = 0
@@ -194,14 +273,18 @@ with tabs[1]:
             apartments_count = st.number_input("عدد الشقق (إن وجد)", min_value=0, step=1, value=0)
             shops_count = st.number_input("عدد المحلات / الوحدات (إن وجد)", min_value=0, step=1, value=0)
 
-        built_area = st.number_input("مساحة البناء (م²)", min_value=0.0, step=10.0)
+        c_larea, c_barea = st.columns(2)
+        with c_larea:
+            land_area = st.number_input("مساحة الأرض (م²)", min_value=0.0, step=10.0, value=600.0)
+        with c_barea:
+            built_area = st.number_input("مساحة البناء (م²)", min_value=0.0, step=10.0, value=800.0)
 
     notes = st.text_area("ملاحظات إضافية")
 
-    # --- الحسابات التلقائية للرسوم والجدوى الاستثمارية ---
+    # --- الحسابات التلقائية ---
     housing_fee = price * 0.03       # رسوم وزارة الإسكان 3%
     brokerage_fee = price * 0.015    # عمولة مكتب الوساطة 1.5%
-    total_investment = price + housing_fee + brokerage_fee  # التكلفة الإجمالية الشاملة
+    total_investment = price + housing_fee + brokerage_fee
 
     annual_rent = monthly_rent * 12
     annual_op_cost = monthly_op_cost * 12
@@ -217,7 +300,7 @@ with tabs[1]:
     r2.metric("عمولة الوساطة العقارية (1.5%)", f"{brokerage_fee:,.2f} ر.ع.")
     r3.metric("إجمالي التكلفة الاستثمارية", f"{total_investment:,.2f} ر.ع.")
 
-    st.subheader("📊 ملخص الجدوى الاستثمارية المحسوب تلقائياً:")
+    st.subheader("📊 ملخص الجدوى الاستثمارية:")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("الدخل السنوي الصافي", f"{net_annual_rent:,.2f} ر.ع.")
     m2.metric("العائد الإجمالي (Gross ROI)", f"{gross_roi:.2f}%")
@@ -233,13 +316,13 @@ with tabs[1]:
                     title, city, district, property_type, price, housing_fee, brokerage_fee, total_investment,
                     monthly_rent, annual_rent, monthly_op_cost, annual_op_cost, net_annual_rent, 
                     gross_roi, net_roi, payback_years, status, apartments_count, shops_count, 
-                    built_area, advertiser_type, advertiser_name, contact_phone, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    land_area, built_area, advertiser_type, advertiser_name, contact_phone, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 title, city, district, property_type, price, housing_fee, brokerage_fee, total_investment,
                 monthly_rent, annual_rent, monthly_op_cost, annual_op_cost, net_annual_rent,
                 gross_roi, net_roi, payback_years, status, apartments_count, shops_count,
-                built_area, advertiser_type, advertiser_name, contact_phone, notes
+                land_area, built_area, advertiser_type, advertiser_name, contact_phone, notes
             ))
             new_id = c.lastrowid
             conn.commit()
@@ -253,7 +336,7 @@ with tabs[1]:
             new_prop_data = c.fetchone()
             conn.close()
 
-            pdf_out = generate_pdf(new_prop_data)
+            pdf_out = generate_pdf_html(new_prop_data)
             st.download_button(
                 label="📥 تحميل تقرير PDF التفصيلي فوراً",
                 data=pdf_out,
@@ -284,9 +367,11 @@ with tabs[2]:
             new_shops = st.number_input("تعديل عدد المحلات:", value=int(prop[19]))
 
         with col2:
-            new_adv_type = st.radio("تعديل صفة المعلن:", ["المالك مباشرة", "مكتب عقاري / وسيط"], index=0 if prop[21] == "المالك مباشرة" else 1, horizontal=True)
-            new_adv_name = st.text_input("تعديل اسم المعلن / المكتب:", value=prop[22] if prop[22] else "")
-            new_phone = st.text_input("تعديل رقم التواصل:", value=prop[23] if prop[23] else "")
+            new_land_area = st.number_input("تعديل مساحة الأرض (م²):", value=float(prop[20]))
+            new_built_area = st.number_input("تعديل مساحة البناء (م²):", value=float(prop[21]))
+            new_adv_type = st.radio("تعديل صفة المعلن:", ["المالك مباشرة", "مكتب عقاري / وسيط"], index=0 if prop[22] == "المالك مباشرة" else 1, horizontal=True)
+            new_adv_name = st.text_input("تعديل اسم المعلن / المكتب:", value=prop[23] if prop[23] else "")
+            new_phone = st.text_input("تعديل رقم التواصل:", value=prop[24] if prop[24] else "")
 
         col_b1, col_b2 = st.columns(2)
         with col_b1:
@@ -308,9 +393,9 @@ with tabs[2]:
                     UPDATE properties 
                     SET status=?, price=?, housing_fee=?, brokerage_fee=?, total_investment=?,
                         monthly_rent=?, annual_rent=?, net_annual_rent=?, gross_roi=?, net_roi=?, payback_years=?,
-                        apartments_count=?, shops_count=?, advertiser_type=?, advertiser_name=?, contact_phone=? 
+                        apartments_count=?, shops_count=?, land_area=?, built_area=?, advertiser_type=?, advertiser_name=?, contact_phone=? 
                     WHERE id=?
-                ''', (new_status, new_price, new_h_fee, new_b_fee, new_tot_inv, new_m_rent, ann_rent, net_ann, g_roi, n_roi, pb_years, new_apps, new_shops, new_adv_type, new_adv_name, new_phone, prop_id_edit))
+                ''', (new_status, new_price, new_h_fee, new_b_fee, new_tot_inv, new_m_rent, ann_rent, net_ann, g_roi, n_roi, pb_years, new_apps, new_shops, new_land_area, new_built_area, new_adv_type, new_adv_name, new_phone, prop_id_edit))
                 conn.commit()
                 conn.close()
                 st.success("تم تحديث البيانات بنجاح!")
@@ -330,7 +415,7 @@ with tabs[2]:
 
 # --- التبويب الرابع: حاسبة الجدوى السريعة ---
 with tabs[3]:
-    st.header("📈 حاسبة الجدوى والعائد الاستثماري الشامل للرسوم")
+    st.header("📈 حاسبة الجدوى والعائد الاستثماري الشامل")
     
     col_calc1, col_calc2 = st.columns(2)
     with col_calc1:
