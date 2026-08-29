@@ -1,0 +1,5 @@
+streamlit
+pandas
+reportlab
+arabic_reshaper
+python-bidi
