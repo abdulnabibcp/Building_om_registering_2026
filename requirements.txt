@@ -1,6 +1,0 @@
-streamlit
-pandas
-pdfkit
-arabic_reshaper
-python-bidi
-wkhtmltopdf
