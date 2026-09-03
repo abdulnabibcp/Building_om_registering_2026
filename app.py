@@ -1,128 +1,160 @@
-import streamlit as st
-import sqlite3
+import libsql_client
 import pandas as pd
+import plotly.express as px
+import streamlit as st
 
-# 1. إعداد قاعدة البيانات
+# 1. إعداد واجهة الصفحة
+st.set_page_config(page_title="نظام إدارة المعاملات العقارية", layout="wide")
+
+
+# 2. الاتصال بقاعدة بيانات Turso
+@st.cache_resource
+def get_db_client():
+    return libsql_client.create_client_sync(
+        url=st.secrets["TURSO_DATABASE_URL"],
+        auth_token=st.secrets["TURSO_AUTH_TOKEN"],
+    )
+
+
+client = get_db_client()
+
+
+# 3. إنشاء جدول المعاملات المحدد
 def init_db():
-    conn = sqlite3.connect('real_estate.db')
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS properties (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT,
-            type TEXT,
-            category TEXT,
-            price REAL,
-            address TEXT,
-            owner_name TEXT,
-            owner_phone TEXT,
-            notes TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    create_table_sql = """
+    CREATE TABLE IF NOT EXISTS transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_name TEXT NOT NULL,
+        property_type TEXT NOT NULL,
+        monthly_rent REAL NOT NULL,
+        gov_tax REAL NOT NULL,
+        bring_emp_fee REAL NOT NULL,
+        sell_emp_fee REAL NOT NULL,
+        office_fee REAL NOT NULL,
+        status TEXT DEFAULT 'Active'
+    );
+    """
+    client.execute(create_table_sql)
+
 
 init_db()
 
-# 2. إعداد واجهة Streamlit
-st.set_page_config(page_title="إدارة المكتب العقاري", layout="wide")
-st.title("🏢 نظام إدارة المكتب العقاري")
+# 4. الواجهة الرئيسية
+st.title("🏢 نظام إدارة المكتب العقاري والمعاملات")
 
-menu = ["🔍 عرض وبحث العقارات", "➕ إضافة عقار جديد", "📊 ملخص عقارات المكتب"]
-choice = st.sidebar.selectbox("القائمة الرئيسية", menu)
+tab_add, tab_view, tab_dashboard = st.tabs(
+    ["➕ إضافة معاملة جديدة", "📋 سجل المعاملات", "📊 لوحة التحليلات"]
+)
 
-# --- 1. إضافة عقار جديد ---
-if choice == "➕ إضافة عقار جديد":
-    st.subheader("إدخال بيانات عقار جديد")
-    
-    with st.form("property_form", clear_on_submit=True):
+# ---------------------------------------------------------
+# تبويب 1: إضافة معاملة جديدة (CREATE)
+# ---------------------------------------------------------
+with tab_add:
+    st.subheader("إدخال بيانات عقد / معاملة جديدة")
+
+    with st.form("add_transaction_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
+
         with col1:
-            title = st.text_input("عنوان العقار (مثال: شقة للبيع في حي الصفا)")
-            type_opt = st.selectbox("نوع العملية", ["بيع", "تأجير", "شراء"])
-            category_opt = st.selectbox("نوع العقار", ["شقة", "مبنى", "محل", "أرض", "فيلا"])
-            price = st.number_input("السعر / الإيجار (بالريال/العملة المحلية)", min_value=0.0, step=1000.0)
-        
+            tenant_name = st.text_input("اسم المستأجر / العميل")
+            property_type = st.selectbox(
+                "نوع العقار",
+                ["شقة", "فيلا", "مكتب تجاري", "محل تجاري", "أرض", "مستودع"],
+            )
+            monthly_rent = st.number_input(
+                "الإيجار الشهري ($)", min_value=0.0, step=50.0
+            )
+            gov_tax = st.number_input(
+                "الضريبة / الرسوم الحكومية ($)", min_value=0.0, step=10.0
+            )
+
         with col2:
-            address = st.text_input("الموقع / العنوان")
-            owner_name = st.text_input("اسم المالك / العميل")
-            owner_phone = st.text_input("رقم هاتف المالك")
-            notes = st.text_area("ملاحظات إضافية (المساحة، عدد الغرف، إلخ)")
-            
-        submit = st.form_submit_button("حفظ العقار")
-        
-        if submit:
-            if title and owner_name:
-                conn = sqlite3.connect('real_estate.db')
-                c = conn.cursor()
-                c.execute('''
-                    INSERT INTO properties (title, type, category, price, address, owner_name, owner_phone, notes)
+            bring_emp_fee = st.number_input(
+                "عمولة الموظف الجالب ($)", min_value=0.0, step=10.0
+            )
+            sell_emp_fee = st.number_input(
+                "عمولة الموظف البائع ($)", min_value=0.0, step=10.0
+            )
+            office_fee = st.number_input(
+                "عمولة المكتب ($)", min_value=0.0, step=10.0
+            )
+            status = st.selectbox(
+                "حالة العقد", ["Active", "Pending", "Closed", "Cancelled"]
+            )
+
+        submit_btn = st.form_submit_button("حفظ المعاملة", type="primary")
+
+        if submit_btn:
+            if tenant_name.strip() != "":
+                client.execute(
+                    """
+                    INSERT INTO transactions 
+                    (tenant_name, property_type, monthly_rent, gov_tax, bring_emp_fee, sell_emp_fee, office_fee, status)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (title, type_opt, category_opt, price, address, owner_name, owner_phone, notes))
-                conn.commit()
-                conn.close()
-                st.success("✅ تم حفظ العقار بنجاح!")
+                    """,
+                    [
+                        tenant_name,
+                        property_type,
+                        monthly_rent,
+                        gov_tax,
+                        bring_emp_fee,
+                        sell_emp_fee,
+                        office_fee,
+                        status,
+                    ],
+                )
+                st.success(f"تمت إضافة معاملة {tenant_name} بنجاح!")
+                st.rerun()
             else:
-                st.error("⚠️ يرجى تعبئة عنوان العقار واسم المالك على الأقل.")
+                st.error("يرجى إدخال اسم المستأجر.")
 
-# --- 2. عرض وبحث العقارات ---
-elif choice == "🔍 عرض وبحث العقارات":
-    st.subheader("قائمة العقارات والبحث السريع")
-    
-    conn = sqlite3.connect('real_estate.db')
-    df = pd.read_sql_query("SELECT * FROM properties", conn)
-    conn.close()
-    
-    if not df.empty:
-        # شريط البحث والفلترة
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            search_term = st.text_input("🔎 بحث (بالعنوان، المالك، الملاحظات):")
-        with col2:
-            filter_type = st.multiselect("فلترة حسب العملية:", options=df["type"].unique(), default=df["type"].unique())
-        with col3:
-            filter_cat = st.multiselect("فلترة حسب النوع:", options=df["category"].unique(), default=df["category"].unique())
-            
-        # تطبيق الفلاتر
-        filtered_df = df[(df["type"].isin(filter_type)) & (df["category"].isin(filter_cat))]
-        
-        if search_term:
-            filtered_df = filtered_df[
-                filtered_df['title'].str.contains(search_term, case=False, na=False) |
-                filtered_df['owner_name'].str.contains(search_term, case=False, na=False) |
-                filtered_df['address'].str.contains(search_term, case=False, na=False) |
-                filtered_df['notes'].str.contains(search_term, case=False, na=False)
-            ]
-            
-        # تغيير أسماء الأعمدة للعرض بالعربية
-        display_df = filtered_df.rename(columns={
-            "id": "المعرف",
-            "title": "العنوان",
-            "type": "العملية",
-            "category": "النوع",
-            "price": "السعر",
-            "address": "الموقع",
-            "owner_name": "المالك",
-            "owner_phone": "الهاتف",
-            "notes": "الملاحظات"
-        })
-        
-        st.dataframe(display_df, use_container_width=True)
-        st.caption(f"عدد النتائج: {len(display_df)}")
-    else:
-        st.info("لا توجد عقارات مسجلة حتى الآن.")
+# ---------------------------------------------------------
+# تبويب 2: عرض وتصفية المعاملات (READ)
+# ---------------------------------------------------------
+with tab_view:
+    st.subheader("جدول المعاملات المسجلة")
 
-# --- 3. ملخص أحصائي ---
-elif choice == "📊 ملخص عقارات المكتب":
-    st.subheader("إحصائيات العقارات المسجلة")
-    conn = sqlite3.connect('real_estate.db')
-    df = pd.read_sql_query("SELECT * FROM properties", conn)
-    conn.close()
-    
-    if not df.empty:
-        col1, col2, col3 = st.columns(3)
-        col1.metric("إجمالي العقارات", len(df))
-        col2.metric("عقارات للبيع", len(df[df['type'] == 'بيع']))
-        col3.metric("عقارات للتأجير", len(df[df['type'] == 'تأجير']))
+    res = client.execute("SELECT * FROM transactions ORDER BY id DESC")
+    if res.rows:
+        df = pd.DataFrame(res.rows, columns=res.columns)
+        st.dataframe(df, use_container_width=True)
     else:
-        st.info("لا توجد بيانات كافية لإنشاء الملخص.")
+        st.info("لا توجد معاملات مسجلة حتى الآن.")
+
+# ---------------------------------------------------------
+# تبويب 3: لوحة التحليلات والرسوم البيانية (DASHBOARD)
+# ---------------------------------------------------------
+with tab_dashboard:
+    st.subheader("مؤشرات الأداء والإيرادات")
+
+    res = client.execute("SELECT * FROM transactions")
+    if res.rows:
+        df = pd.DataFrame(res.rows, columns=res.columns)
+
+        # الملاحظات المالية المباشرة
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("إجمالي الإيجارات", f"{df['monthly_rent'].sum():,.2f} $")
+        m2.metric("أرباح المكتب", f"{df['office_fee'].sum():,.2f} $")
+        m3.metric(
+            "عمولات الموظفين",
+            f"{(df['bring_emp_fee'].sum() + df['sell_emp_fee'].sum()):,.2f} $",
+        )
+        m4.metric("الضرائب الحكومية", f"{df['gov_tax'].sum():,.2f} $")
+
+        st.divider()
+
+        # رسم بياني لتوزيع الإيجارات
+        fig = px.bar(
+            df,
+            x="property_type",
+            y="monthly_rent",
+            color="status",
+            title="توزيع الإيجارات حسب نوع العقار وحالة العقد",
+            labels={
+                "property_type": "نوع العقار",
+                "monthly_rent": "الإيجار الشهري",
+            },
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("قم بإضافة معاملات أولاً لعرض التحليلات.")
